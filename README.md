@@ -1,5 +1,3 @@
-# DPF + ImGui template plugin project
+# DPF ImGui template with states!
 
-This repository contains an example audio plugin project using DPF and ImGui.
-
-![Screenshot](Screenshot.png "Screenshot")
+Like https://github.com/Simon-L/imgui-template-plugin but with states and for a synth rather than effect

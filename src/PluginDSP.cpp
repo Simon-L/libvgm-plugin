@@ -8,7 +8,19 @@
 #include "DistrhoPlugin.hpp"
 #include "extra/ValueSmoother.hpp"
 
+#include "DistrhoPluginUtils.hpp"
+
+#include <string>
+#include <list>
+#include <iostream>
+#include <filesystem>
+#include <json.hpp>
+
+namespace fs = std::filesystem;
+using json = nlohmann::json;
+
 START_NAMESPACE_DISTRHO
+
 
 // --------------------------------------------------------------------------------------------------------------------
 
@@ -28,10 +40,12 @@ class ImGuiPluginDSP : public Plugin
 {
     enum Parameters {
         kParamGain = 0,
+        kParamVoice,
         kParamCount
     };
 
     float fGainDB = 0.0f;
+    int fVoice = 0;
     ExponentialValueSmoother fSmoothGain;
 
 public:
@@ -40,104 +54,93 @@ public:
       You must set all parameter values to their defaults, matching ParameterRanges::def.
     */
     ImGuiPluginDSP()
-        : Plugin(kParamCount, 0, 0) // parameters, programs, states
+        : Plugin(kParamCount, 0, 1) // parameters, programs, states
     {
         fSmoothGain.setSampleRate(getSampleRate());
         fSmoothGain.setTargetValue(DB_CO(0.f));
         fSmoothGain.setTimeConstant(0.020f); // 20ms
+
+        // res = fs::path(getBinaryFilename()).parent_path().parent_path();
     }
+    
 
 protected:
     // ----------------------------------------------------------------------------------------------------------------
     // Information
-
-   /**
-      Get the plugin label.@n
-      This label is a short restricted name consisting of only _, a-z, A-Z and 0-9 characters.
-    */
-    const char* getLabel() const noexcept override
-    {
-        return "SimpleGain";
-    }
-
-   /**
-      Get an extensive comment/description about the plugin.@n
-      Optional, returns nothing by default.
-    */
-    const char* getDescription() const override
-    {
-        return "A simple audio volume gain plugin with ImGui for its GUI";
-    }
-
-   /**
-      Get the plugin author/maker.
-    */
-    const char* getMaker() const noexcept override
-    {
-        return "Jean Pierre Cimalando, falkTX";
-    }
-
-   /**
-      Get the plugin license (a single line of text or a URL).@n
-      For commercial plugins this should return some short copyright information.
-    */
-    const char* getLicense() const noexcept override
-    {
-        return "ISC";
-    }
-
-   /**
-      Get the plugin version, in hexadecimal.
-      @see d_version()
-    */
-    uint32_t getVersion() const noexcept override
-    {
-        return d_version(1, 0, 0);
-    }
-
-   /**
-      Get the plugin unique Id.@n
-      This value is used by LADSPA, DSSI and VST plugin formats.
-      @see d_cconst()
-    */
-    int64_t getUniqueId() const noexcept override
-    {
-        return d_cconst('d', 'I', 'm', 'G');
-    }
-
+    const char* getLabel() const noexcept override { return "__DPFLABEL__";}
+    const char* getDescription() const override { return "__DPFDESCRIPTION__";}
+    const char* getLicense() const noexcept override { return "ISC";}
+    uint32_t getVersion() const noexcept override { return d_version(1, 0, 0);}
+    int64_t getUniqueId() const noexcept override { return d_cconst('a', 'b', 'c', 'd');}
+    const char* getMaker() const noexcept override { return "__YOURNAME__, Jean Pierre Cimalando, falkTX";}
+    
     // ----------------------------------------------------------------------------------------------------------------
     // Init
 
-   /**
-      Initialize the parameter @a index.@n
-      This function will be called once, shortly after the plugin is created.
-    */
     void initParameter(uint32_t index, Parameter& parameter) override
     {
-        DISTRHO_SAFE_ASSERT_RETURN(index == 0,);
-
-        parameter.ranges.min = -90.0f;
-        parameter.ranges.max = 30.0f;
-        parameter.ranges.def = 0.0f;
-        parameter.hints = kParameterIsAutomatable;
-        parameter.name = "Gain";
-        parameter.shortName = "Gain";
-        parameter.symbol = "gain";
-        parameter.unit = "dB";
+        switch (index) {
+          case 0:
+            parameter.ranges.min = -90.0f;
+            parameter.ranges.max = 30.0f;
+            parameter.ranges.def = 0.0f;
+            parameter.hints = kParameterIsAutomatable;
+            parameter.name = "Gain";
+            parameter.shortName = "Gain";
+            parameter.symbol = "gain";
+            parameter.unit = "dB";
+            break;
+          case 1:
+            parameter.ranges.min = 0;
+            parameter.ranges.max = 128;
+            parameter.ranges.def = 0;
+            parameter.hints = kParameterIsAutomatable|kParameterIsInteger;
+            parameter.name = "Voice";
+            parameter.shortName = "Voice";
+            parameter.symbol = "voice";
+            break;
+        }
     }
 
     // ----------------------------------------------------------------------------------------------------------------
     // Internal data
-
+    
+    /**
+       Initialize the state @a index.@n
+       This function will be called once, shortly after the plugin is created.@n
+       Must be implemented by your plugin class only if DISTRHO_PLUGIN_WANT_STATE is enabled.
+     */
+    void initState(uint32_t index, State& state) override
+    {
+      // std::cout << "initState " << index << '\n';
+      if (index == 0)
+      {
+        state.key = "file";
+        state.defaultValue = "";
+        state.hints = kStateIsFilenamePath;
+      }
+    }
+    
+    void setState(const char* key, const char* value) override
+    {
+      if (std::strcmp(key, "file") == 0)
+      {
+      }
+    }
    /**
       Get the current value of a parameter.@n
       The host may call this function from any context, including realtime processing.
     */
     float getParameterValue(uint32_t index) const override
     {
-        DISTRHO_SAFE_ASSERT_RETURN(index == 0, 0.0f);
-
-        return fGainDB;
+        switch (index) {
+          case 0:
+            return fGainDB;
+            break;
+          case 1:
+            return fVoice;
+            break;
+        }
     }
 
    /**
@@ -148,12 +151,18 @@ protected:
     */
     void setParameterValue(uint32_t index, float value) override
     {
-        DISTRHO_SAFE_ASSERT_RETURN(index == 0,);
+        switch (index) {
+          case 0:
+            fGainDB = value;
+            fSmoothGain.setTargetValue(DB_CO(CLAMP(value, -90.0, 30.0)));
+            break;
+          case 1:
+            fVoice = int(value);
+            break;
+        }
 
-        fGainDB = value;
-        fSmoothGain.setTargetValue(DB_CO(CLAMP(value, -90.0, 30.0)));
     }
-
+    
     // ----------------------------------------------------------------------------------------------------------------
     // Audio/MIDI Processing
 
@@ -163,28 +172,56 @@ protected:
     void activate() override
     {
         fSmoothGain.clearToTargetValue();
+          
     }
-
+    
+#define EVENT_NOTEON 0x90
+#define EVENT_NOTEOFF 0x80
+#define EVENT_PITCHBEND 0xE0
+#define EVENT_PGMCHANGE 0xC0
+#define EVENT_CONTROLLER 0xB0
+    
+    void handleMidi(const MidiEvent* event)
+    {   
+      uint8_t b0 = event->data[0]; // status + channel
+      uint8_t b0_status = b0 & 0xF0;
+      uint8_t b0_channel = b0 & 0x0F;
+      uint8_t b1 = event->data[1]; // note
+      uint8_t b2 = event->data[2]; // velocity
+      d_stdout("MIDI in 0x%x (status: 0x%x, channel: 0x%x) %d %d", b0, b0_status, b0_channel, b1, b2);
+      
+      switch (b0_status) {
+        case EVENT_NOTEON:
+          break;
+        case EVENT_NOTEOFF:
+          break;
+        case EVENT_PITCHBEND:
+          break;
+        case EVENT_PGMCHANGE:
+          break;
+        case EVENT_CONTROLLER:
+          break;
+      }
+    }
    /**
       Run/process function for plugins without MIDI input.
       @note Some parameters might be null if there are no audio inputs or outputs.
     */
-    void run(const float** inputs, float** outputs, uint32_t frames) override
+    void run(const float** inputs, float** outputs, uint32_t frames, const MidiEvent* midiEvents, uint32_t midiEventCount) override
     {
-        // get the left and right audio inputs
-        const float* const inpL = inputs[0];
-        const float* const inpR = inputs[1];
-
+        for (size_t i = 0; i < midiEventCount; i++) {
+          handleMidi(&midiEvents[i]);
+        }
         // get the left and right audio outputs
         float* const outL = outputs[0];
         float* const outR = outputs[1];
-
+        
         // apply gain against all samples
         for (uint32_t i=0; i < frames; ++i)
         {
             const float gain = fSmoothGain.next();
-            outL[i] = inpL[i] * gain;
-            outR[i] = inpR[i] * gain;
+            outL[i] = (0) * gain;
+            outR[i] = (0) * gain;
         }
     }
 
@@ -199,6 +236,7 @@ protected:
     void sampleRateChanged(double newSampleRate) override
     {
         fSmoothGain.setSampleRate(newSampleRate);
+        std::cout << "SR changed to " << newSampleRate << '\n';
     }
 
     // ----------------------------------------------------------------------------------------------------------------
