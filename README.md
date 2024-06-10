@@ -6,6 +6,8 @@ This repository contains an example audio plugin project using DPF and ImGui.
 
 `git clone --recursive https://github.com/Simon-L/imgui-template-plugin my-cool-plugin`
 
+![screenshot](screenshot.png)
+
 ## Placeholders
 
 * `__CMAKENAME__`: used in CMakeLists.txt
